@@ -11,10 +11,12 @@ import (
 )
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token,omitempty"`
+	RefreshToken string    `json:"refresh_token,omitempty"`
 }
 
 func (cfg *apiConfig) handlerUsersCreate(w http.ResponseWriter, req *http.Request) {
@@ -75,6 +77,7 @@ func (cfg *apiConfig) handlerUsersLogin(w http.ResponseWriter, req *http.Request
 
 	decoder := json.NewDecoder(req.Body)
 	params := parameters{}
+	expiresRefreshToken, _ := time.ParseDuration("1440h")
 
 	if err := decoder.Decode(&params); err != nil {
 		responseWithError(w, http.StatusInternalServerError, "Couldn't decode parametes", err)
@@ -110,11 +113,33 @@ func (cfg *apiConfig) handlerUsersLogin(w http.ResponseWriter, req *http.Request
 		return
 	}
 
+	token, err := auth.MakeJWT(user.ID, cfg.jwtSecret, time.Hour)
+
+	if err != nil || token == "" {
+		responseWithError(w, http.StatusInternalServerError, "Failed to create token", err)
+		return
+	}
+
+	makeRefreshToken := auth.MakeRefreshToken()
+
+	refreshToken, err := cfg.db.CreateRefreshToken(req.Context(), database.CreateRefreshTokenParams{
+		Token:     makeRefreshToken,
+		ExpiresAt: time.Now().UTC().Add(time.Hour * 24 * 60),
+		UserID:    user.ID,
+	})
+
+	if err != nil {
+		responseWithError(w, http.StatusInternalServerError, "Failed to save refresh token", err)
+		return
+	}
+
 	responseWithJSON(w, http.StatusOK, User{
-		ID:        user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email:     user.Email,
+		ID:           user.ID,
+		CreatedAt:    user.CreatedAt,
+		UpdatedAt:    user.UpdatedAt,
+		Email:        user.Email,
+		Token:        token,
+		RefreshToken: refreshToken.Token,
 	})
 
 }

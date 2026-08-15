@@ -1,9 +1,14 @@
 package auth
 
 import (
+	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestHashPassword(t *testing.T) {
@@ -50,5 +55,35 @@ func TestCheckPasswordHash(t *testing.T) {
 
 	if match {
 		t.Error("expected password and hash to not match")
+	}
+}
+
+func TestMakeJWT(t *testing.T) {
+	uuid := uuid.MustParse("32d1ae43-502f-4bbc-99c5-0076be6921ef")
+	tokenSecret := "B7FfEklt1igu77YlwbGg3FLtuxYfO9Tuemf7ZZ2LasMVBAuEA9RuHUeVg1qIKhZA"
+	expiresIn, _ := time.ParseDuration("6h")
+
+	token, err := MakeJWT(uuid, tokenSecret, expiresIn)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if token == "" {
+		t.Error("did not expect empty token")
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	headers := &http.Header{}
+
+	headers.Set("Authorization", "Bearer wz+znvOhhL2OVc2/HwD2qHR6iDORsIykUwYs8eD3uFRk8BKCWC1T+vaCWjuD26bCj1Oag3odAwYQpmBLclaysA==")
+
+	token, err := GetBearerToken(*headers)
+
+	if err != nil {
+		t.Fatal(err)
+	} else {
+		fmt.Printf("Bearer token: %s", token)
 	}
 }
