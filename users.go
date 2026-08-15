@@ -77,7 +77,6 @@ func (cfg *apiConfig) handlerUsersLogin(w http.ResponseWriter, req *http.Request
 
 	decoder := json.NewDecoder(req.Body)
 	params := parameters{}
-	expiresRefreshToken, _ := time.ParseDuration("1440h")
 
 	if err := decoder.Decode(&params); err != nil {
 		responseWithError(w, http.StatusInternalServerError, "Couldn't decode parametes", err)
