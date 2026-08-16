@@ -38,3 +38,20 @@ func (cfg *apiConfig) handlerRefreshToken(w http.ResponseWriter, req *http.Reque
 	})
 
 }
+
+func (cfg *apiConfig) handlerRefreshTokenRevoke(w http.ResponseWriter, req *http.Request) {
+	refreshToken, err := auth.GetBearerToken(req.Header)
+
+	if err != nil {
+		responseWithError(w, http.StatusBadRequest, "Bearer not provided", err)
+		return
+	}
+
+	if _, err = cfg.db.RevokeRefreshToken(req.Context(), refreshToken); err != nil {
+		responseWithError(w, http.StatusInternalServerError, "Failed to revoke refresh token", err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+
+}

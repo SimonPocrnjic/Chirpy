@@ -1,9 +1,11 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"sort"
 	"time"
 
 	"github.com/Chirpy/internal/auth"
@@ -77,11 +79,31 @@ func (cfg *apiConfig) handlerChirpsCreate(w http.ResponseWriter, req *http.Reque
 
 func (cfg *apiConfig) handlerChirpsGetAll(w http.ResponseWriter, req *http.Request) {
 
-	dbChirps, err := cfg.db.GetChirps(req.Context())
+	authorID, err := authorIDFromRequest(req)
+	if err != nil {
+		responseWithError(w, http.StatusBadRequest, "Invalid author ID", err)
+		return
+	}
+
+	sortDir := req.URL.Query().Get("sort")
+
+	var dbChirps []database.Chirp
+
+	if authorID != uuid.Nil {
+		dbChirps, err = cfg.db.GetChirpsByUser(req.Context(), authorID)
+	} else {
+		dbChirps, err = cfg.db.GetChirps(req.Context())
+	}
 
 	if err != nil {
 		responseWithError(w, http.StatusInternalServerError, "Couldn't fetch chirps", err)
 		return
+	}
+
+	if sortDir != "" && sortDir == "desc" {
+		sort.Slice(dbChirps, func(i, j int) bool {
+			return dbChirps[i].CreatedAt.UTC().Compare(dbChirps[j].CreatedAt) == 1
+		})
 	}
 
 	chirps := []Chirp{}
@@ -119,6 +141,46 @@ func (cfg *apiConfig) handlerChirpsGet(w http.ResponseWriter, req *http.Request)
 	})
 }
 
+func (cfg *apiConfig) handlerChirpsDelete(w http.ResponseWriter, req *http.Request) {
+	bearerToken, err := auth.GetBearerToken(req.Header)
+
+	if err != nil {
+		responseWithError(w, http.StatusUnauthorized, "Couldn't retrive token", err)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(bearerToken, cfg.jwtSecret)
+
+	if err != nil {
+		responseWithError(w, http.StatusUnauthorized, "Failed to validate token", err)
+		return
+	}
+
+	chirpID := uuid.MustParse(req.PathValue("chirpID"))
+
+	chirp, err := cfg.db.GetChirp(req.Context(), chirpID)
+
+	if err == sql.ErrNoRows {
+		responseWithError(w, http.StatusNotFound, "Couldn't find chirp", err)
+		return
+	} else if err != nil {
+		responseWithError(w, http.StatusInternalServerError, "Something went wrong", err)
+	}
+
+	if chirp.UserID != userID {
+		responseWithError(w, http.StatusForbidden, "User not allowed to delete record", nil)
+		return
+	}
+
+	if err := cfg.db.DeleteChirp(req.Context(), chirp.ID); err != nil {
+		responseWithError(w, http.StatusInternalServerError, "Failed to delete record", err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+
+}
+
 func getCleanedBody(body string, badWords []string) string {
 	cleaned := body
 
@@ -128,4 +190,17 @@ func getCleanedBody(body string, badWords []string) string {
 	}
 
 	return cleaned
+}
+
+func authorIDFromRequest(req *http.Request) (uuid.UUID, error) {
+	authorIDString := req.URL.Query().Get("author_id")
+	if authorIDString == "" {
+		return uuid.Nil, nil
+	}
+
+	authorID, err := uuid.Parse(authorIDString)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return authorID, nil
 }
